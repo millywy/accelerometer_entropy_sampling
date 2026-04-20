@@ -1,0 +1,18 @@
+# Dataset (do not commit raw data)
+hpi-dhc TROIKA main datasets-IEEE_SPC_2015/
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+*.egg-info/
+dist/
+build/
+
+# Jupyter
+.ipynb_checkpoints/
+
+# macOS
+.DS_Store

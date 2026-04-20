@@ -1,0 +1,153 @@
+Claude Code Kickoff Prompt — Paste This in Full
+I am a Stanford EE student working on a research project for an accepted poster paper at EMBC 2026 (IEEE Engineering in Medicine and Biology Society conference, Toronto, July 2026). I need your help building a complete analysis pipeline in Python using Jupyter notebooks. Please read this entire prompt carefully before doing anything.
+
+Background and Motivation
+The core scientific question is: Is accelerometer entropy/compressibility a better predictor of PPG-based heart rate estimation error than accelerometer magnitude?
+Current wearable devices (like Apple Watch) use accelerometer (ACC) magnitude to decide PPG signal quality — high magnitude means lots of motion, so they either turn off HR estimation or increase sampling rate. The problem is that magnitude only tells you how big the motion is, not how predictable it is.
+Our hypothesis is that compressibility (measured via entropy) is more informative than magnitude. The intuition is:
+
+Treadmill running: High ACC magnitude BUT highly periodic/predictable motion → high compressibility → HR estimation should still work well
+Arm movements (boxing, hand gestures): Low ACC magnitude BUT highly irregular/unpredictable motion → low compressibility → HR estimation breaks down
+
+These two cases are where magnitude and entropy disagree — and we want to show entropy is right and magnitude is wrong.
+
+Dataset
+Source: IEEE Signal Processing Cup 2015 wrist PPG dataset
+Format: MATLAB .mat files. The sig row layout differs between training and test files (this was confirmed empirically and documented in the TestData Readme):
+
+Training files (DATA_XX_TYPEYY.mat, 12 recordings) — sig is 6 × N:
+  Row 0: ECG signal (reference)
+  Row 1: PPG channel 1 (wrist)
+  Row 2: PPG channel 2 (wrist)
+  Row 3: ACC x-axis
+  Row 4: ACC y-axis
+  Row 5: ACC z-axis
+
+Test files (TEST_SXX_TYY.mat, 10 recordings) — sig is 5 × N (ECG withheld by competition):
+  Row 0: PPG channel 1 (wrist)
+  Row 1: PPG channel 2 (wrist)
+  Row 2: ACC x-axis
+  Row 3: ACC y-axis
+  Row 4: ACC z-axis
+
+The data loader in step1_data_loading.ipynb branches on sig.shape[0] and returns a normalized dict {ecg, ppg, acc, bpm0} so downstream code is layout-agnostic.
+
+All signals sampled at 125 Hz.
+Ground truth: Corresponding _BPMtrace.mat files (training) and TrueBPM/True_*.mat files (test) contain a variable BPM0 — pre-calculated heart rate in BPM for each 8-second window with a 2-second shift (so windows overlap by 6 seconds).
+
+Three groups (refined 2026-04-18 after seeing the data):
+
+T1 — Treadmill (rec 1–12, 12 files): Training set. Subjects walking/running on treadmill at varying speeds. High ACC magnitude, highly periodic predictable motion.
+
+T2 — Mixed arm exercise (rec 13, 14, 19, 22 — the test T01 files, 4 recordings): Subjects performed rehab-style forearm/upper-arm exercise (shake hands, stretch, push-ups, plus some running and jumping). Heterogeneous magnitudes — can be low (stretching) or comparable to treadmill (push-ups, jumping), but motion character is irregular.
+
+T3 — Boxing (rec 15, 16, 17, 18, 20, 21 — the test T02 files, 6 recordings): Subjects performed intensive forearm/upper-arm movements (mainly boxing). High ACC magnitude, highly irregular/unpredictable motion. This is the key "high-magnitude but high-entropy" group that should separate from T1 treadmill under entropy-based metrics.
+
+Important empirical note (from Step 1 sanity check): mean RMS ACC magnitude does NOT cleanly separate T1 from T2+T3 (T1 ≈ 1.48 g, T2/T3 pooled ≈ 1.50 g, essentially tied). This is not a bug — it is evidence for the paper's thesis: magnitude alone cannot distinguish treadmill-running from boxing. The entropy metrics in Step 4 are expected to be what separates these activities.
+
+Please explore my repo and data folder structure before writing any code so all file paths and variable names are correct.
+
+Tech Stack
+
+Python 3
+Jupyter notebooks
+scipy, numpy, matplotlib, pandas
+One master notebook with clearly labeled sections, or separate notebooks per step — your call based on what you see in my repo
+
+
+Analysis Pipeline — Do These Steps in Order
+Step 1 — Data Loading and Sanity Check
+
+Write a robust data loader that loads all 22 .mat files and their corresponding BPMtrace files
+For each recording, extract: ECG, PPG (both channels), ACC (x, y, z), and ground truth BPM0
+Compute per-window RMS ACC magnitude: sqrt(acc_x² + acc_y² + acc_z²), averaged across the window
+Plot mean ACC magnitude per recording, colored by group (T1 treadmill vs T2 mixed-arm vs T3 boxing)
+Sanity-check expectation: mean ACC RMS will overlap substantially between the three groups — T3 boxing can be as high as T1 treadmill, and T2 spans a wide range. This is expected and is the motivation for the paper.
+Also plot a few raw PPG and ACC signals so we can visually confirm the data looks reasonable
+
+Step 2 — Simple Stateless HR Estimator
+This is critical: the estimator must be completely stateless — no history, no tracking across windows, no dependence on previous estimates. Each 8-second window is processed independently.
+Algorithm:
+
+Average the two PPG channels
+Bandpass filter between 0.5–4 Hz (covers 30–240 BPM) using a Butterworth filter
+Compute FFT of the filtered window
+Find the dominant frequency peak within the 0.5–4 Hz range
+Convert to BPM
+
+Windowing: 8 seconds = 1000 samples at 125 Hz, shift by 250 samples (2 seconds) between windows, matching the BPMtrace ground truth exactly.
+Validation:
+
+Compare estimated BPM to BPM0 ground truth for all windows
+Compute per-window absolute error: |estimated - ground_truth|
+Report mean absolute error (MAE) per recording and per group
+Plot estimated vs ground truth HR for a few recordings so we can visually inspect quality
+
+Step 3 — Exploratory Correlation Analysis
+
+Scatter plot: ACC magnitude vs HR error, all windows pooled, colored by group
+Compute Pearson and Spearman correlation coefficients for ACC magnitude vs HR error
+Do this both pooled across all recordings AND separately within each group
+This is important: if the correlation only exists because the two groups differ as a whole, that is a weaker result than if it holds within each group too
+Plot mean HR error per recording sorted by magnitude
+
+Step 4 — Entropy Metrics
+Compute the following metrics for the ACC signal in each 8-second window. Use the combined 3-axis ACC signal (you can try per-axis and combined and see which correlates better):
+Metric 1 — Histogram entropy (start here, it is the most reliable on short windows):
+
+Uniformly quantize the ACC signal into B bins (try B=16 or B=32)
+Compute plug-in Shannon entropy: H = -sum(p * log2(p)) where p is the normalized histogram
+
+Metric 2 — KL divergence between consecutive windows:
+
+Compute histogram of current window and previous window
+Compute KL divergence between them
+This captures how much the motion character is changing, not just its absolute entropy
+
+Metric 3 — LZ complexity (if time allows):
+
+Convert quantized ACC to a symbol sequence
+Count the number of distinct phrases in the Lempel-Ziv parsing
+Normalize by window length
+
+For each metric:
+
+Scatter plot vs HR error, all windows, colored by group
+Compute Pearson and Spearman correlation with HR error
+Do this pooled and within each group separately
+
+Step 5 — Four-Quadrant Analysis (Key Visualization)
+This is the most important figure for the poster:
+
+For each window, compute: ACC magnitude and histogram entropy
+Median-split all windows into high/low ACC magnitude AND high/low entropy → four quadrants
+Compute mean HR error in each quadrant
+Visualize as a 2×2 heatmap or annotated scatter plot
+
+Expected story:
+
+High magnitude + high entropy (irregular vigorous motion like boxing): high error, both metrics agree
+Low magnitude + low entropy (rest/sleep): low error, both metrics agree
+High magnitude + low entropy (treadmill running): low-moderate error — entropy correctly predicts this is manageable, magnitude wrongly suggests it is hard
+Low magnitude + high entropy (irregular arm gestures): high error — entropy correctly flags this as problematic, magnitude wrongly suggests it is easy
+
+The two off-diagonal quadrants are where entropy and magnitude disagree — and where entropy wins. This is the central claim of the paper.
+Step 6 — Summary Comparison Table
+Produce a clean table showing:
+
+Correlation coefficient (Pearson and Spearman) of each metric vs HR error
+Metrics: ACC magnitude, histogram entropy, KL divergence, LZ complexity
+Shown for: all recordings pooled, T1 treadmill only, T2 mixed-arm only, T3 boxing only
+
+This becomes Table 1 in the poster.
+
+Important Notes
+
+At each step, show me the output and plots before moving to the next step
+If something looks wrong or unexpected, flag it and we will investigate before continuing
+Keep code clean and well commented — this will go on GitHub
+All plots should have clear titles, axis labels, and legends
+Use a consistent color scheme throughout all plots: T1 treadmill = steelblue, T2 mixed arm exercise = goldenrod, T3 boxing = crimson
+
+
+Start by exploring my repo and data folder structure and confirming you can see all 22 data files and their BPMtrace counterparts. Then confirm the variable names inside one .mat file before writing any loading code.
