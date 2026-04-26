@@ -118,6 +118,7 @@ def evaluate_recording(rec, high_error_threshold=5.0, **kwargs):
       true_bpm               — 1-D array of ground-truth BPM per window
       abs_error              — |est - true| per window
       mae                    — scalar mean absolute error (BPM)
+      median_error           — scalar median absolute error (BPM, robust to heavy tails)
       n_high_error           — count of windows with |error| > high_error_threshold
       high_error_threshold   — the threshold used (echoed back for plot labels)
     """
@@ -131,6 +132,7 @@ def evaluate_recording(rec, high_error_threshold=5.0, **kwargs):
         true_bpm=true,
         abs_error=err,
         mae=float(err.mean()),
+        median_error=float(np.median(err)),
         n_high_error=int(np.sum(err > high_error_threshold)),
         high_error_threshold=float(high_error_threshold),
     )
@@ -140,7 +142,7 @@ def evaluate_all(recordings, high_error_threshold=5.0, **kwargs):
     """Run the HR estimator on every recording. Returns a list of per-rec dicts.
 
     Each dict carries rec_id, group, est_bpm, true_bpm, abs_error, mae,
-    n_high_error, high_error_threshold (see `evaluate_recording`).
+    median_error, n_high_error, high_error_threshold (see `evaluate_recording`).
 
     Pass `high_error_threshold=...` to override the default 5 BPM threshold.
     """
