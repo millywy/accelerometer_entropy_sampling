@@ -67,14 +67,14 @@ def estimate_hr_window(x_window, fs=FS, lo=HR_LO_HZ, hi=HR_HI_HZ, n_fft=N_FFT):
     Picks argmax of |FFT|² inside [lo, hi] Hz and converts to BPM (×60).
     Returns a float.
     """
-    spec  = np.fft.rfft(x_window, n=n_fft)
-    freqs = np.fft.rfftfreq(n_fft, d=1.0 / fs)
+    spec  = np.fft.rfft(x_window, n=n_fft) #real-valued FFT, length n_fft//2 + 1 = 4097 bins
+    freqs = np.fft.rfftfreq(n_fft, d=1.0 / fs) #corresponding frequencies in Hz
     mask  = (freqs >= lo) & (freqs <= hi)
-    power = np.abs(spec[mask]) ** 2
-    peak_freq = freqs[mask][np.argmax(power)]
+    power = np.abs(spec[mask]) ** 2 #power spectrum in the [lo, hi] range
+    peak_freq = freqs[mask][np.argmax(power)] #frequency of the dominant peak in Hz
     return peak_freq * 60.0
 
-
+# helper for debugging: plot the spectrum of one window
 def window_spectrum(x_window, fs=FS, n_fft=N_FFT):
     """Return (freqs, power) for a single window's zero-padded FFT.
 
@@ -107,31 +107,46 @@ def estimate_hr_trace(ppg, fs=FS, win=WIN_SAMPLES, shift=SHIFT,
 
 
 # ── Evaluation helpers ───────────────────────────────────────────────────────
-def evaluate_recording(rec, **kwargs):
+def evaluate_recording(rec, high_error_threshold=5.0, **kwargs):
     """Run the HR estimator on one recording and compare to its BPM0 ground truth.
 
+    high_error_threshold: BPM. A window is counted as "high error" if its
+    absolute error strictly exceeds this value. Default 5 BPM.
+
     Returns a dict with:
-      est_bpm   — 1-D array of estimated BPM per window
-      true_bpm  — 1-D array of ground-truth BPM per window
-      abs_error — |est - true| per window
-      mae       — scalar mean absolute error (BPM)
+      est_bpm                — 1-D array of estimated BPM per window
+      true_bpm               — 1-D array of ground-truth BPM per window
+      abs_error              — |est - true| per window
+      mae                    — scalar mean absolute error (BPM)
+      n_high_error           — count of windows with |error| > high_error_threshold
+      high_error_threshold   — the threshold used (echoed back for plot labels)
     """
     est  = estimate_hr_trace(rec['ppg'], **kwargs)
     true = rec['bpm0']
     n    = min(len(est), len(true))
     est, true = est[:n], true[:n]
     err  = np.abs(est - true)
-    return dict(est_bpm=est, true_bpm=true, abs_error=err, mae=float(err.mean()))
+    return dict(
+        est_bpm=est,
+        true_bpm=true,
+        abs_error=err,
+        mae=float(err.mean()),
+        n_high_error=int(np.sum(err > high_error_threshold)),
+        high_error_threshold=float(high_error_threshold),
+    )
 
 
-def evaluate_all(recordings, **kwargs):
+def evaluate_all(recordings, high_error_threshold=5.0, **kwargs):
     """Run the HR estimator on every recording. Returns a list of per-rec dicts.
 
-    Each dict carries rec_id, group, est_bpm, true_bpm, abs_error, mae.
+    Each dict carries rec_id, group, est_bpm, true_bpm, abs_error, mae,
+    n_high_error, high_error_threshold (see `evaluate_recording`).
+
+    Pass `high_error_threshold=...` to override the default 5 BPM threshold.
     """
     results = []
     for rec in recordings:
-        r = evaluate_recording(rec, **kwargs)
+        r = evaluate_recording(rec, high_error_threshold=high_error_threshold, **kwargs)
         r['rec_id'] = rec['rec_id']
         r['group']  = rec['group']
         results.append(r)

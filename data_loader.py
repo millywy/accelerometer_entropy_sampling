@@ -84,7 +84,7 @@ def build_manifest():
                             sig_path=sig_path, bpm_path=bpm_path))
 
     # T2/T3: 10 test files — T01 suffix → T2 (mixed arm), T02 suffix → T3 (boxing)
-    next_id = 13
+    next_id = 13 #fragile but good enough for this small dataset; just want T1=01-12, T2/T3=13-22
     for sig_path in sorted(TEST_DIR.glob('TEST_S*.mat')):
         m = re.search(r'TEST_(S\d+)_(T\d+)', sig_path.name)
         subject_tag, task_tag = m.group(1), m.group(2)
@@ -112,7 +112,7 @@ def load_recording(rec):
     Returns a dict with keys {ecg, ppg, acc, bpm0}; `ecg` is None for test files.
     """
     sig  = sio.loadmat(rec['sig_path'])['sig'].astype(float)
-    bpm0 = sio.loadmat(rec['bpm_path'])['BPM0'].ravel().astype(float)
+    bpm0 = sio.loadmat(rec['bpm_path'])['BPM0'].ravel().astype(float) #flatten to 1-D
     n_rows = sig.shape[0]
 
     if rec['group'] == 'T1':
